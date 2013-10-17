@@ -3,6 +3,8 @@ package com.qubell.cli
 import com.sun.xml.internal.messaging.saaj.util.Base64
 import java.net.{URL, HttpURLConnection}
 import scala.util.parsing.json.JSON
+import java.io.File
+import java.util.Scanner
 
 object Main {
 
@@ -13,8 +15,13 @@ object Main {
         rest match {
           case "-org" :: orgId :: rest => {
             rest match {
-              case "applications-list" :: _ => print (formatList(api.listApps(orgId), appHeaders))
-
+              case "applications-list" :: _ => {
+                print (formatList(api.listApps(orgId), appHeaders))
+              }
+              case "application-update" :: appId :: file :: _ => {
+                  val manifestText= new Scanner(new File(file)).useDelimiter("\\Z").next()
+                  formatMap(api.upload(appId, manifestText), versionHeaders)
+              }
             }
           }
         }
@@ -23,25 +30,46 @@ object Main {
   }
 
   private val appHeaders  = List("id", "name")
+  private val versionHeaders = List("version")
+
   private def formatList (list: List[Any], headers: List[String]) = {
     val data = list.map({case x: Map[String, String] => headers.map(h => x.get(h).getOrElse("") )} )
     Tabulator.format(headers :: data) + "\n"
   }
+
+  private def formatMap (data: Map[String, String], headers: List[String]) = {
+    val d = headers.map (h => data.get(h).getOrElse(""))
+    Tabulator.format(List(headers, d))
+  }
 }
 
-class API(username: String, password: String) {
+private class API(username: String, password: String) {
   def listApps(orgId: String) = {
     val response = getResponse(s"https://express.qubell.com/api/1/organizations/$orgId/applications")
     JSON.parseFull(response).get.asInstanceOf[List[Any]]
   }
 
-  private def getClient(url: String) = {
+  def upload(appId: String, manifest: String) = {
+    val client = getClient(s"https://express.qubell.com/api/1/applications/$appId", method = "PUT", body = Some(manifest))
+    JSON.parseFull(getResponse(client)).asInstanceOf[Map[String, String]]
+  }
+
+  private def getClient(url: String, method: String = "GET", body: Option[String] = None) = {
     val authStr = username + ":" + password
     val base64 = Base64.encode(authStr.getBytes("UTF-8"))
     val connection = new URL(url).openConnection().asInstanceOf[HttpURLConnection]
-    connection.setRequestMethod("GET")
+    connection.setRequestMethod("method")
     connection.setDoOutput(true)
     connection.setRequestProperty("Authorization", "Basic " + new String(base64, "UTF-8"))
+    body.foreach(s=> {
+      val output = connection.getOutputStream();
+      try {
+        output.write(s.getBytes("UTF-*"));
+      } finally {
+        try { output.close(); } catch  {case _ => ()}
+      }
+      connection.setRequestProperty("Content-Type", "text/x-yaml")
+    })
 
     connection
   }
@@ -49,10 +77,14 @@ class API(username: String, password: String) {
   private def getResponse(url: String): String = {
     scala.io.Source.fromInputStream(getClient(url).getInputStream).getLines().mkString("\n")
   }
+
+  private def getResponse(connection: HttpURLConnection): String = {
+    scala.io.Source.fromInputStream(connection.getInputStream).getLines().mkString("\n")
+  }
 }
 
 //http://codereview.stackexchange.com/questions/5138/formatting-as-a-table-in-scala
-object Tabulator {
+private object Tabulator {
 
   def format(table: Seq[Seq[Any]]) = table match {
     case Seq() => ""
