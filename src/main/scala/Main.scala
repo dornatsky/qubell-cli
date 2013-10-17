@@ -11,7 +11,7 @@ object Main {
       case "-u" :: user :: pass :: rest => {
         val api = new API(user, pass)
         rest match {
-          case "org" :: orgId :: rest => {
+          case "-org" :: orgId :: rest => {
             rest match {
               case "applications-list" :: _ => print (formatList(api.listApps(orgId), appHeaders))
 
@@ -24,12 +24,8 @@ object Main {
 
   private val appHeaders  = List("id", "name")
   private def formatList (list: List[Any], headers: List[String]) = {
-    headers.mkString("\t") + "\n" +
-      headers.map(x => "-" * x.size).mkString("\t") + "\n" +
-    list.map({case map: Map[String, Any] => {
-       headers.map(x => map.get(x).get).mkString("\t")
-      }
-    }).mkString("\n") + "\n"
+    val data = list.map({case x: Map[String, String] => headers.map(h => x.get(h).getOrElse("") )} )
+    Tabulator.format(headers :: data) + "\n"
   }
 }
 
@@ -55,4 +51,35 @@ class API(username: String, password: String) {
   }
 }
 
-case class Application (id: String, name: String)
+//http://codereview.stackexchange.com/questions/5138/formatting-as-a-table-in-scala
+object Tabulator {
+
+  def format(table: Seq[Seq[Any]]) = table match {
+    case Seq() => ""
+    case _ =>
+      val cellSizes = for (row <- table) yield
+        (for (cell <- row) yield
+          if (cell == null) 0 else cell.toString.length)
+      val colSizes = for (col <- cellSizes.transpose) yield col.max
+      val rows = for (row <- table) yield formatRow(row, colSizes)
+      formatRows(rowSeparator(colSizes), rows)
+  }
+
+  def formatRow(row: Seq[Any], colSizes: Seq[Int]) = {
+    val cells = (for ((item, size) <- row.zip(colSizes)) yield
+      if (size == 0) "" else ("%" + size + "s").format(item))
+    cells.mkString("|", "|", "|")
+  }
+
+  def formatRows(rowSeparator: String, rows: Seq[String]): String = (
+    rowSeparator ::
+      rows.head ::
+      rowSeparator ::
+      rows.tail.toList :::
+      rowSeparator ::
+      List()).mkString("\n")
+
+
+  private def rowSeparator(colSizes: Seq[Int]) =
+    colSizes map { "-" * _ } mkString("+", "+", "+")
+}
